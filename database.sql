@@ -1,46 +1,101 @@
--- SQL script for creating the necessary tables for the Form Builder application.
 --
--- It is recommended to run these commands in your MySQL client.
--- --------------------------------------------------------
-
--- 1. Create the database (if it doesn't exist)
-CREATE DATABASE IF NOT EXISTS `form_builder_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-USE `form_builder_db`;
+-- Database: `dorm_management_system`
+--
 
 -- --------------------------------------------------------
 
--- 2. Create the `forms` table
--- This table stores the overall structure of each form.
-CREATE TABLE `forms` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) NOT NULL,
-  `structure` longtext NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `forms_chk_structure` CHECK (json_valid(`structure`))
+--
+-- Table structure for table `users`
+--
+CREATE TABLE `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `username` VARCHAR(50) NOT NULL UNIQUE,
+  `password` VARCHAR(255) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+--
+-- Dumping data for table `users`
+--
+INSERT INTO `users` (`username`, `password`) VALUES
+('admin', '$2y$10$I.3u5g.pD/62e92V8.YLBeH2S3jWp4zU1f2z3g4h5i6j7k8l9m0n1'); -- password is 'password'
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `rooms`
+--
+CREATE TABLE `rooms` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `room_number` VARCHAR(10) NOT NULL UNIQUE,
+  `room_type` VARCHAR(50),
+  `price` DECIMAL(10, 2) NOT NULL,
+  `status` ENUM('available', 'occupied', 'maintenance') NOT NULL DEFAULT 'available'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
 
--- 3. Create the `submissions` table
--- This table stores the data submitted through each form.
-CREATE TABLE `submissions` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `form_id` int(11) NOT NULL,
-  `data` longtext NOT NULL,
-  `submitted_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `form_id_idx` (`form_id`),
-  CONSTRAINT `submissions_fk_form_id` FOREIGN KEY (`form_id`) REFERENCES `forms` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `submissions_chk_data` CHECK (json_valid(`data`))
+--
+-- Table structure for table `tenants`
+--
+CREATE TABLE `tenants` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(100) NOT NULL,
+  `phone` VARCHAR(15),
+  `email` VARCHAR(100),
+  `id_card` VARCHAR(20),
+  `address` TEXT,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
 
--- 4. Create a dedicated database user (recommended for security)
--- Replace 'db_user' and 'db_password' with a secure username and password.
--- CREATE USER 'db_user'@'localhost' IDENTIFIED BY 'db_password';
--- GRANT ALL PRIVILEGES ON `form_builder_db`.* TO 'db_user'@'localhost';
--- FLUSH PRIVILEGES;
+--
+-- Table structure for table `contracts`
+--
+CREATE TABLE `contracts` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `room_id` INT NOT NULL,
+  `tenant_id` INT NOT NULL,
+  `start_date` DATE NOT NULL,
+  `end_date` DATE,
+  `deposit` DECIMAL(10, 2) DEFAULT 0.00,
+  `is_active` BOOLEAN DEFAULT TRUE,
+  FOREIGN KEY (`room_id`) REFERENCES `rooms`(`id`),
+  FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- After running this script, make sure to update the credentials in `api/db.php`.
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `bills`
+--
+CREATE TABLE `bills` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `contract_id` INT NOT NULL,
+  `bill_date` DATE NOT NULL,
+  `due_date` DATE NOT NULL,
+  `room_rent` DECIMAL(10, 2) NOT NULL,
+  `water_usage` DECIMAL(10, 2) DEFAULT 0.00,
+  `water_bill` DECIMAL(10, 2) DEFAULT 0.00,
+  `electricity_usage` DECIMAL(10, 2) DEFAULT 0.00,
+  `electricity_bill` DECIMAL(10, 2) DEFAULT 0.00,
+  `other_charges` DECIMAL(10, 2) DEFAULT 0.00,
+  `total_amount` DECIMAL(10, 2) NOT NULL,
+  `status` ENUM('unpaid', 'paid', 'overdue') NOT NULL DEFAULT 'unpaid',
+  FOREIGN KEY (`contract_id`) REFERENCES `contracts`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `payments`
+--
+CREATE TABLE `payments` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `bill_id` INT NOT NULL,
+  `payment_date` DATE NOT NULL,
+  `amount_paid` DECIMAL(10, 2) NOT NULL,
+  `payment_method` VARCHAR(50),
+  FOREIGN KEY (`bill_id`) REFERENCES `bills`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการหอพัก (Dormitory Management System)</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>ระบบจัดการหอพัก</h1>
+        </header>
+
+        <div class="app-body">
+            <nav class="sidebar">
+                <ul class="nav-menu">
+                    <li class="nav-item"><a href="#" data-page="dashboard">แดชบอร์ด</a></li>
+                    <li class="nav-item"><a href="#" data-page="rooms">จัดการห้องพัก</a></li>
+                    <li class="nav-item"><a href="#" data-page="tenants">จัดการผู้เช่า</a></li>
+                    <li class="nav-item"><a href="#" data-page="contracts">จัดการสัญญา</a></li>
+                    <li class="nav-item"><a href="#" data-page="billing">จัดการบิล/ใบแจ้งหนี้</a></li>
+                </ul>
+            </nav>
+
+            <main id="app-content" class="main-content">
+                <!-- Content will be loaded here by JavaScript -->
+                <p>กำลังโหลด...</p>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+
+    <!-- Add Room Modal -->
+    <div id="add-room-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2 id="modal-title">เพิ่มห้องพักใหม่</h2>
+            <form id="room-form">
+                <input type="hidden" id="room_id" name="id">
+                <div class="form-group">
+                    <label for="room_number">หมายเลขห้อง:</label>
+                    <input type="text" id="room_number" name="room_number" required>
+                </div>
+                <div class="form-group">
+                    <label for="room_type">ประเภทห้อง:</label>
+                    <input type="text" id="room_type" name="room_type">
+                </div>
+                <div class="form-group">
+                    <label for="price">ราคา:</label>
+                    <input type="number" id="price" name="price" required>
+                </div>
+                <div class="form-group">
+                    <label for="status">สถานะ:</label>
+                    <select id="status" name="status" required>
+                        <option value="available">ว่าง (Available)</option>
+                        <option value="occupied">ไม่ว่าง (Occupied)</option>
+                        <option value="maintenance">ปิดปรับปรุง (Maintenance)</option>
+                    </select>
+                </div>
+                <button type="submit" class="button-primary">บันทึก</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add/Edit Tenant Modal -->
+    <div id="tenant-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2 id="tenant-modal-title">เพิ่มผู้เช่าใหม่</h2>
+            <form id="tenant-form">
+                <input type="hidden" id="tenant_id" name="id">
+                <div class="form-group">
+                    <label for="name">ชื่อ-สกุล:</label>
+                    <input type="text" id="name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="phone">เบอร์โทรศัพท์:</label>
+                    <input type="tel" id="phone" name="phone">
+                </div>
+                <div class="form-group">
+                    <label for="email">อีเมล:</label>
+                    <input type="email" id="email" name="email">
+                </div>
+                <div class="form-group">
+                    <label for="id_card">เลขบัตรประชาชน:</label>
+                    <input type="text" id="id_card" name="id_card">
+                </div>
+                <div class="form-group">
+                    <label for="address">ที่อยู่:</label>
+                    <textarea id="address" name="address" rows="3"></textarea>
+                </div>
+                <button type="submit" class="button-primary">บันทึก</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add/Edit Contract Modal -->
+    <div id="contract-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2 id="contract-modal-title">สร้างสัญญาใหม่</h2>
+            <form id="contract-form">
+                <div class="form-group">
+                    <label for="contract-room-id">เลือกห้อง (ที่ว่าง):</label>
+                    <select id="contract-room-id" name="room_id" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="contract-tenant-id">เลือกผู้เช่า (ที่ยังไม่มีสัญญา):</label>
+                    <select id="contract-tenant-id" name="tenant_id" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="start_date">วันที่เริ่มสัญญา:</label>
+                    <input type="date" id="start_date" name="start_date" required>
+                </div>
+                <div class="form-group">
+                    <label for="deposit">ค่ามัดจำ:</label>
+                    <input type="number" id="deposit" name="deposit" value="0">
+                </div>
+                <button type="submit" class="button-primary">บันทึกสัญญา</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
