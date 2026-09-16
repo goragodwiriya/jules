@@ -1,177 +1,361 @@
 <?php
-// --- Main API Router ---
+// --- POS REST API Router ---
 
-// Set global headers for JSON response and CORS
-header("Content-Type: application/json");
-// In a production environment, you should restrict this to your frontend's domain
-// for security. Example: header("Access-Control-Allow-Origin: https://yourdomain.com");
+header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
-// PHP's built-in server doesn't handle OPTIONS requests well, so we do it manually.
-// This is for pre-flight requests from browsers.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204); // No Content
+    http_response_code(204);
     exit;
 }
 
-// Include the database connection. The script will exit if connection fails.
 require_once 'db.php';
 
-// --- Helper function to send a standardized JSON response and exit ---
-function send_json_response($data, $statusCode = 200) {
+function send_json($data, $statusCode = 200) {
     http_response_code($statusCode);
-    echo json_encode($data);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-// --- API Routing Logic ---
+function get_json_payload() {
+    $raw = file_get_contents('php://input');
+    if (empty($raw)) return [];
+    $data = json_decode($raw, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        send_json(['status' => 'error', 'message' => 'Invalid JSON input'], 400);
+    }
+    return $data;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
+$action = $_GET['action'] ?? '';
 
-// Get the request path from the 'path' query parameter set by .htaccess
-$path_info = isset($_GET['path']) ? $_GET['path'] : '';
-
-// Sanitize and split the path into parts
-$path_parts = explode('/', trim(filter_var($path_info, FILTER_SANITIZE_URL), '/'));
-
-$resource = array_shift($path_parts) ?? null;
-$resource_id = array_shift($path_parts) ?? null;
-$sub_resource = array_shift($path_parts) ?? null;
-
-// --- Main try-catch block for handling all requests ---
 try {
-    // Route based on the main resource (e.g., 'forms')
-    switch ($resource) {
-        case 'forms':
-            // Handle requests to /api/forms
-            if ($method === 'POST' && $resource_id === null) {
-                // --- CREATE a new form ---
-                // Route: POST /api/forms
-                $payload = json_decode(file_get_contents('php://input'), true);
+    switch ($action) {
+        // --- CATEGORIES ---
+        case 'get_categories':
+            $stmt = $pdo->query("SELECT * FROM categories ORDER BY id ASC");
+            send_json(['status' => 'success', 'data' => $stmt->fetchAll()]);
+            break;
 
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    send_json_response(['message' => 'Invalid JSON payload provided'], 400);
-                }
+        case 'add_category':
+            if ($method !== 'POST') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+            if (empty($data['name'])) send_json(['status' => 'error', 'message' => 'Category name is required'], 400);
 
-                $formName = $payload['name'] ?? null;
-                $formStructure = $payload['structure'] ?? null;
+            $stmt = $pdo->prepare("INSERT INTO categories (name, icon) VALUES (?, ?)");
+            $stmt->execute([$data['name'], $data['icon'] ?? 'bi-tag']);
+            send_json(['status' => 'success', 'id' => $pdo->lastInsertId(), 'message' => 'Category created']);
+            break;
 
-                if (empty($formName) || empty($formStructure)) {
-                    send_json_response(['message' => 'Form name and structure are required'], 400);
-                }
+        case 'update_category':
+            if ($method !== 'POST' && $method !== 'PUT') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+            if (empty($data['id']) || empty($data['name'])) send_json(['status' => 'error', 'message' => 'ID and Name required'], 400);
 
-                $stmt = $pdo->prepare("INSERT INTO forms (name, structure) VALUES (?, ?)");
-                // We store the structure as a JSON string
-                $stmt->execute([$formName, json_encode($formStructure)]);
+            $stmt = $pdo->prepare("UPDATE categories SET name = ?, icon = ? WHERE id = ?");
+            $stmt->execute([$data['name'], $data['icon'] ?? 'bi-tag', $data['id']]);
+            send_json(['status' => 'success', 'message' => 'Category updated']);
+            break;
 
-                $newFormId = $pdo->lastInsertId();
+        case 'delete_category':
+            if ($method !== 'POST' && $method !== 'DELETE') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+            $id = $data['id'] ?? $_GET['id'] ?? null;
+            if (!$id) send_json(['status' => 'error', 'message' => 'Category ID required'], 400);
 
-                send_json_response(['id' => $newFormId, 'message' => 'Form created successfully'], 201);
+            $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
+            $stmt->execute([$id]);
+            send_json(['status' => 'success', 'message' => 'Category deleted']);
+            break;
+
+        // --- PRODUCTS ---
+        case 'get_products':
+            $catId = $_GET['category_id'] ?? null;
+            $search = $_GET['search'] ?? null;
+
+            $sql = "SELECT p.*, c.name as category_name
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    WHERE 1=1";
+            $params = [];
+
+            if ($catId && $catId !== 'all') {
+                $sql .= " AND p.category_id = ?";
+                $params[] = $catId;
             }
-            // Handle requests to /api/forms/{id}
-            elseif ($method === 'GET' && is_numeric($resource_id) && $sub_resource === null) {
-                // --- READ a specific form's structure ---
-                // Route: GET /api/forms/{id}
-                $stmt = $pdo->prepare("SELECT id, name, structure, created_at FROM forms WHERE id = ?");
-                $stmt->execute([$resource_id]);
-                $form = $stmt->fetch();
 
-                if ($form) {
-                    // Decode the JSON string from the DB back into an array/object for the client
-                    $form['structure'] = json_decode($form['structure'], true);
-                    send_json_response($form);
-                } else {
-                    send_json_response(['message' => "Form with ID {$resource_id} not found"], 404);
-                }
+            if ($search) {
+                $sql .= " AND (p.name LIKE ? OR p.barcode LIKE ?)";
+                $params[] = "%$search%";
+                $params[] = "%$search%";
             }
-            // Handle requests to /api/forms/{id}/submissions
-            elseif ($method === 'POST' && is_numeric($resource_id) && $sub_resource === 'submissions') {
-                // --- CREATE a new submission for a form ---
-                // Route: POST /api/forms/{id}/submissions
 
-                // First, check if the form exists
-                $stmt = $pdo->prepare("SELECT id FROM forms WHERE id = ?");
-                $stmt->execute([$resource_id]);
-                if ($stmt->fetch() === false) {
-                    send_json_response(['message' => "Form with ID {$resource_id} not found"], 404);
-                }
+            $sql .= " ORDER BY p.id DESC";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            send_json(['status' => 'success', 'data' => $stmt->fetchAll()]);
+            break;
 
-                // The submitted data from a standard form post is in $_POST
-                $submission_data = $_POST;
+        case 'add_product':
+            if ($method !== 'POST') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
 
-                if (empty($submission_data)) {
-                    // This could also happen if the request body is JSON, so let's check that too.
-                    $json_payload = json_decode(file_get_contents('php://input'), true);
-                    if (!empty($json_payload)) {
-                        $submission_data = $json_payload;
-                    } else {
-                        send_json_response(['message' => 'No submission data received'], 400);
+            if (empty($data['name']) || !isset($data['price'])) {
+                send_json(['status' => 'error', 'message' => 'Product name and price are required'], 400);
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO products (barcode, name, category_id, price, cost, stock, image_url)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $data['barcode'] ?? null,
+                $data['name'],
+                $data['category_id'] ?? null,
+                floatval($data['price']),
+                floatval($data['cost'] ?? 0),
+                intval($data['stock'] ?? 0),
+                $data['image_url'] ?? ''
+            ]);
+            send_json(['status' => 'success', 'id' => $pdo->lastInsertId(), 'message' => 'Product created']);
+            break;
+
+        case 'update_product':
+            if ($method !== 'POST' && $method !== 'PUT') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+
+            if (empty($data['id']) || empty($data['name']) || !isset($data['price'])) {
+                send_json(['status' => 'error', 'message' => 'Product ID, name, and price are required'], 400);
+            }
+
+            $stmt = $pdo->prepare("UPDATE products
+                                   SET barcode = ?, name = ?, category_id = ?, price = ?, cost = ?, stock = ?, image_url = ?
+                                   WHERE id = ?");
+            $stmt->execute([
+                $data['barcode'] ?? null,
+                $data['name'],
+                $data['category_id'] ?? null,
+                floatval($data['price']),
+                floatval($data['cost'] ?? 0),
+                intval($data['stock'] ?? 0),
+                $data['image_url'] ?? '',
+                $data['id']
+            ]);
+            send_json(['status' => 'success', 'message' => 'Product updated']);
+            break;
+
+        case 'delete_product':
+            if ($method !== 'POST' && $method !== 'DELETE') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+            $id = $data['id'] ?? $_GET['id'] ?? null;
+
+            if (!$id) send_json(['status' => 'error', 'message' => 'Product ID required'], 400);
+
+            $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
+            $stmt->execute([$id]);
+            send_json(['status' => 'success', 'message' => 'Product deleted']);
+            break;
+
+        // --- CHECKOUT / ORDERS ---
+        case 'checkout':
+            if ($method !== 'POST') send_json(['status' => 'error', 'message' => 'Method not allowed'], 405);
+            $data = get_json_payload();
+
+            $items = $data['items'] ?? [];
+            if (empty($items)) {
+                send_json(['status' => 'error', 'message' => 'Cart is empty'], 400);
+            }
+
+            $paymentMethod = $data['payment_method'] ?? 'cash';
+            $paidAmount = floatval($data['paid_amount'] ?? 0);
+            $discount = floatval($data['discount'] ?? 0);
+            $tax = floatval($data['tax'] ?? 0);
+
+            // Start transaction
+            $pdo->beginTransaction();
+
+            try {
+                $subtotal = 0;
+                $orderItemsToInsert = [];
+
+                foreach ($items as $item) {
+                    $prodId = $item['id'];
+                    $qty = intval($item['quantity']);
+
+                    // Check product and stock
+                    $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+                    $stmt->execute([$prodId]);
+                    $product = $stmt->fetch();
+
+                    if (!$product) {
+                        throw new Exception("Product ID {$prodId} not found");
                     }
+
+                    if ($product['stock'] < $qty) {
+                        throw new Exception("สินค้า {$product['name']} มีจำนวนไม่พอในสต็อก (เหลือ {$product['stock']})");
+                    }
+
+                    $unitPrice = floatval($product['price']);
+                    $itemSubtotal = $unitPrice * $qty;
+                    $subtotal += $itemSubtotal;
+
+                    // Deduct stock
+                    $updateStock = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+                    $updateStock->execute([$qty, $prodId]);
+
+                    $orderItemsToInsert[] = [
+                        'product_id' => $prodId,
+                        'product_name' => $product['name'],
+                        'unit_price' => $unitPrice,
+                        'quantity' => $qty,
+                        'subtotal' => $itemSubtotal
+                    ];
                 }
 
-                // Store the entire submission data as a single JSON object
-                $stmt = $pdo->prepare("INSERT INTO submissions (form_id, data) VALUES (?, ?)");
-                $stmt->execute([$resource_id, json_encode($submission_data)]);
+                $finalAmount = max(0, ($subtotal - $discount) + $tax);
 
-                // For an API, returning JSON is standard. The frontend will handle the redirect or success message.
-                send_json_response(['message' => 'Form submitted successfully'], 201);
-            }
-            // Handle requests to /api/forms/{id}/submissions
-            elseif ($method === 'GET' && is_numeric($resource_id) && $sub_resource === 'submissions') {
-                // --- READ all submissions for a specific form ---
-                // Route: GET /api/forms/{id}/submissions
-
-                // First, get the form details (especially the structure for table headers)
-                $stmt = $pdo->prepare("SELECT id, name, structure FROM forms WHERE id = ?");
-                $stmt->execute([$resource_id]);
-                $form = $stmt->fetch();
-
-                if ($form === false) {
-                    send_json_response(['message' => "Form with ID {$resource_id} not found"], 404);
+                if ($paymentMethod === 'cash' && $paidAmount < $finalAmount) {
+                    throw new Exception("จำนวนเงินที่รับชำระไม่พอ (ขาดอีก " . number_format($finalAmount - $paidAmount, 2) . " บาท)");
                 }
-                $form['structure'] = json_decode($form['structure'], true);
 
-                // Now, get all submissions for that form
-                $stmt = $pdo->prepare("SELECT id, data, submitted_at FROM submissions WHERE form_id = ? ORDER BY submitted_at DESC");
-                $stmt->execute([$resource_id]);
-                $submissions = $stmt->fetchAll();
+                $changeAmount = ($paymentMethod === 'cash') ? ($paidAmount - $finalAmount) : 0;
+                if ($paymentMethod === 'qr') {
+                    $paidAmount = $finalAmount;
+                }
 
-                // Decode the 'data' field for each submission
-                $submissions = array_map(function($sub) {
-                    $sub['data'] = json_decode($sub['data'], true);
-                    return $sub;
-                }, $submissions);
+                $orderNumber = 'ORD-' . date('YmdHis') . '-' . rand(100, 999);
 
-                // Combine into a single response object
-                $response_data = [
-                    'form' => $form,
-                    'submissions' => $submissions
-                ];
+                $stmt = $pdo->prepare("INSERT INTO orders (order_number, subtotal, discount, tax, final_amount, payment_method, paid_amount, change_amount)
+                                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([
+                    $orderNumber,
+                    $subtotal,
+                    $discount,
+                    $tax,
+                    $finalAmount,
+                    $paymentMethod,
+                    $paidAmount,
+                    $changeAmount
+                ]);
+                $orderId = $pdo->lastInsertId();
 
-                send_json_response($response_data);
-            }
-            // Handle other requests related to forms (like submissions) in future steps
-            else {
-                send_json_response(['message' => 'Invalid method or endpoint for forms resource'], 405); // 405 Method Not Allowed
+                $itemStmt = $pdo->prepare("INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal)
+                                           VALUES (?, ?, ?, ?, ?, ?)");
+                foreach ($orderItemsToInsert as $item) {
+                    $itemStmt->execute([
+                        $orderId,
+                        $item['product_id'],
+                        $item['product_name'],
+                        $item['unit_price'],
+                        $item['quantity'],
+                        $item['subtotal']
+                    ]);
+                }
+
+                $pdo->commit();
+
+                send_json([
+                    'status' => 'success',
+                    'message' => 'ชำระเงินสำเร็จ',
+                    'data' => [
+                        'order_id' => $orderId,
+                        'order_number' => $orderNumber,
+                        'subtotal' => $subtotal,
+                        'discount' => $discount,
+                        'tax' => $tax,
+                        'final_amount' => $finalAmount,
+                        'payment_method' => $paymentMethod,
+                        'paid_amount' => $paidAmount,
+                        'change_amount' => $changeAmount,
+                        'items' => $orderItemsToInsert,
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]
+                ], 201);
+
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                send_json(['status' => 'error', 'message' => $e->getMessage()], 400);
             }
             break;
 
-        // Add other resources like 'submissions' here in the future
-        // case 'submissions':
-        //     ...
-        //     break;
+        case 'get_orders':
+            $stmt = $pdo->query("SELECT * FROM orders ORDER BY id DESC LIMIT 50");
+            $orders = $stmt->fetchAll();
+            send_json(['status' => 'success', 'data' => $orders]);
+            break;
+
+        case 'get_order_details':
+            $id = $_GET['id'] ?? null;
+            if (!$id) send_json(['status' => 'error', 'message' => 'Order ID required'], 400);
+
+            $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ?");
+            $stmt->execute([$id]);
+            $order = $stmt->fetch();
+
+            if (!$order) send_json(['status' => 'error', 'message' => 'Order not found'], 404);
+
+            $itemStmt = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
+            $itemStmt->execute([$id]);
+            $items = $itemStmt->fetchAll();
+
+            $order['items'] = $items;
+            send_json(['status' => 'success', 'data' => $order]);
+            break;
+
+        // --- DASHBOARD / REPORTS ---
+        case 'get_dashboard_summary':
+            // Today Sales
+            $today = date('Y-m-d');
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(final_amount), 0) as total_sales FROM orders WHERE DATE(created_at) = ?");
+            $stmt->execute([$today]);
+            $todayStats = $stmt->fetch();
+
+            // Total All Time Sales
+            $stmt = $pdo->query("SELECT COUNT(*) as total_orders, COALESCE(SUM(final_amount), 0) as total_sales FROM orders");
+            $totalStats = $stmt->fetch();
+
+            // Total Products count
+            $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
+            $prodStats = $stmt->fetch();
+
+            // Low Stock Items (< 10)
+            $stmt = $pdo->query("SELECT * FROM products WHERE stock < 10 ORDER BY stock ASC");
+            $lowStockItems = $stmt->fetchAll();
+
+            // Top 5 selling products
+            $stmt = $pdo->query("SELECT product_name, SUM(quantity) as total_qty, SUM(subtotal) as total_amount
+                                 FROM order_items
+                                 GROUP BY product_name
+                                 ORDER BY total_qty DESC
+                                 LIMIT 5");
+            $topProducts = $stmt->fetchAll();
+
+            // Sales breakdown by payment method
+            $stmt = $pdo->query("SELECT payment_method, COUNT(*) as count, COALESCE(SUM(final_amount), 0) as total
+                                 FROM orders
+                                 GROUP BY payment_method");
+            $paymentBreakdown = $stmt->fetchAll();
+
+            send_json([
+                'status' => 'success',
+                'data' => [
+                    'today' => $todayStats,
+                    'overall' => $totalStats,
+                    'total_products' => $prodStats['total_products'],
+                    'low_stock' => $lowStockItems,
+                    'top_products' => $topProducts,
+                    'payment_breakdown' => $paymentBreakdown
+                ]
+            ]);
+            break;
 
         default:
-            // Handle unknown resources
-            send_json_response(['message' => 'API resource not found'], 404);
+            send_json(['status' => 'error', 'message' => 'Endpoint action not found'], 404);
             break;
     }
 } catch (PDOException $e) {
-    // Catch any database errors that occur during query execution
-    // In production, you should log this error instead of echoing it.
-    send_json_response(['message' => "Database query failed: " . $e->getMessage()], 500);
+    send_json(['status' => 'error', 'message' => 'Database query error: ' . $e->getMessage()], 500);
 } catch (Exception $e) {
-    // Catch any other unexpected errors
-    send_json_response(['message' => "An unexpected error occurred: " . $e->getMessage()], 500);
+    send_json(['status' => 'error', 'message' => $e->getMessage()], 500);
 }
